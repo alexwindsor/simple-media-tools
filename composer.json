@@ -1,0 +1,18 @@
+{
+    "name": "alexwindsor/simple-media-tools",
+    "type": "library",
+    "Description": "Some custom tools for editing video and audio files using mostly ffmpeg",
+    "autoload": {
+        "psr-4": {
+            "AlexWindsor\\SimpleMediaTools": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Alex Windsor",
+            "email": "alexwindsormusic@gmail.com"
+        }
+    ],
+    "minimum-stability": "stable",
+    "require": {}
+}
