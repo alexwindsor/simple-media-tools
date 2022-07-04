@@ -4,7 +4,7 @@
     "Description": "Some custom tools for editing video and audio files using mostly ffmpeg",
     "autoload": {
         "psr-4": {
-            "AlexWindsor\\SimpleMediaTools": "src/"
+            "AlexWindsor\\SimpleMediaTools\\": "src/"
         }
     },
     "authors": [
