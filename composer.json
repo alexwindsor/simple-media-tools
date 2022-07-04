@@ -1,10 +1,11 @@
 {
     "name": "alexwindsor/simple-media-tools",
     "type": "library",
+    "license": "MIT",
     "Description": "Some custom tools for editing video and audio files using mostly ffmpeg",
     "autoload": {
         "psr-4": {
-            "AlexWindsor\\SimpleMediaTools\\": "src/"
+            "AlexWindsor\\": "src/"
         }
     },
     "authors": [
