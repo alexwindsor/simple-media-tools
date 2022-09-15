@@ -6,17 +6,45 @@ class SimpleMediaTools {
   /*
   requires:
 
-  ffmpeg / ffprobe
-  convert (imagemagick)
+  ffmpeg
+  ffprobe
   exiftool
-
-
   */
 
   public $media_data = [];
   public $media_path;
   public $mimeType;
   public $type;
+
+  public $ffprobe_video_data = [
+    'codec_long_name' => 'Video Codec Name',
+    'width' => 'Width',
+    'height' => 'Height',
+    'sample_aspect_ratio' => 'Sample Aspect Ratio',
+    'display_aspect_ratio' => 'Display Aspect Ratio',
+    'pix_fmt' => 'Pixel Format',
+    'r_frame_rate' => 'Real Frame Rate',
+    'avg_frame_rate' => 'Average Frame Rate',
+    'bit_rate' => 'Bit Rate',
+    'duration' => 'Duration (seconds)',
+    'nb_frames' => 'Number of Frames',
+    'TAG:rotate' => 'Rotation',
+    'TAG:creation_time' => 'Create Date'
+  ];
+
+  public $ffprobe_audio_data = [
+    'duration' => 'Duration (seconds)',
+    'codec_long_name' => 'Audio Codec Name',
+    'sample_rate' => 'Audio Sample Rate',
+    'channels' => 'Audio Channels',
+    'channel_layout' => 'Audio Channel Layout',
+    'bit_rate' => 'Audio Bit Rate',
+    'nb_frames' => 'Number of Audio Frames',
+    'TAG:creation_time' => 'Create Date',
+  ];
+
+
+
 
   public function __construct($media_path) {
 
@@ -34,10 +62,8 @@ class SimpleMediaTools {
 
     // get image data from 'exif' bash command
     if ($this->type == 'image') $this->getImageData();
-    // get video data from 'ffprobe' bash command
-    elseif ($this->type == 'video') $this->getVideoData();
-    // get duration of the sound file from 'ffprobe' bash command
-    elseif ($this->type == 'audio') $this->getSoundData();
+    // get video or sound data from 'ffprobe' bash command
+    elseif ($this->type == 'video' || $this->type == 'audio') $this->getVideoOrSoundData();
 
 
   }
@@ -46,10 +72,13 @@ class SimpleMediaTools {
 
   private function getImageData() {
 
+    // ini_set('memory_limit', '-1');
+
     $this->media_data = [];
 
     $data = shell_exec('exiftool ' . $this->media_path);
 
+    $data = iconv('UTF-8', 'UTF-8//IGNORE', $data); // remove non utf8 characters that don't work in json
     $data = explode("\n", $data);
 
     $skipped_exif_values = ['ExifTool Version Number', 'File Name', 'Directory', 'File Size', 'File Modification Date/Time', 'File Access Date/Time', 'File Inode Change Date/Time', 'File Permissions', 'File Type', 'File Type Extension', 'MIME Type'];
@@ -57,39 +86,49 @@ class SimpleMediaTools {
     for ($i = 0; $i < count($data); $i++) {
       if (!strpos($data[$i], ':')) continue; // skip lines with no data
       $row = explode(':', $data[$i], 2);
+      if (trim($row[0]) == 'File Modification Date/Time') $just_in_case_date = trim($row[1]);
       if (in_array(trim($row[0]), $skipped_exif_values)) continue; // skip values that are in the above array
       $this->media_data[trim($row[0])] = trim($row[1]); // make associative array
     }
 
+    if (!isset($this->media_data['Create Date']) && !isset($this->media_data['Modify Date'])) $this->media_data['File Modification Date/Time'] = substr($just_in_case_date, 0, strpos($just_in_case_date, '+'));
+
   }
 
 
-  private function getVideoData() {
+  private function getVideoOrSoundData() {
 
-    $this->media_data = [];
+    $ffprobe = shell_exec('ffprobe -v quiet -show_streams ' . $this->media_path);
 
-    $data = shell_exec('ffprobe -v quiet -select_streams v:0 -show_streams ' . $this->media_path);
-    $data = explode(PHP_EOL, $data);
+    $ffprobe = explode(PHP_EOL . '[/STREAM]' . PHP_EOL . '[STREAM]', $ffprobe);
 
-    foreach ($data as $key => $value) {
-      if (!strpos($value, '=')) continue;
-      $row = explode('=', $value, 2);
-      $this->media_data[trim($row[0])] = trim($row[1]);
+    $this->media_data = ['audio' => false];
+
+
+    foreach ($ffprobe as $channel) {
+
+      $channel = explode(PHP_EOL, $channel);
+
+      // video channel
+      if (in_array('codec_type=video', $channel)) {
+        foreach ($channel as $line) {
+          if (!strpos($line ,'=')) continue;
+          $data_line = explode('=', $line);
+          if (in_array($data_line[0], array_keys($this->ffprobe_video_data))) $this->media_data[$this->ffprobe_video_data[$data_line[0]]] = trim($data_line[1]);
+        }
+      }
+
+      // audio channel
+      elseif (in_array('codec_type=audio', $channel)) {
+        $this->media_data['audio'] = true;
+        foreach ($channel as $line) {
+          if (!strpos($line ,'=')) continue;
+          $data_line = explode('=', $line);
+          if (in_array($data_line[0], array_keys($this->ffprobe_audio_data))) $this->media_data[$this->ffprobe_audio_data[$data_line[0]]] = trim($data_line[1]);
+        }
+      }
     }
-
   }
-
-
-
-  private function getSoundData() {
-
-    $this->media_data = [];
-
-    $seconds = shell_exec('ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 ' . $this->media_path);
-    $this->media_data['duration'] = $seconds;
-  }
-
-
 
 
 
@@ -131,7 +170,7 @@ class SimpleMediaTools {
       unlink($this->media_path . '_locked');
 
       // update metadata
-      $this->getVideoData();
+      $this->getVideoOrSoundData();
     }
     else return false;
 
@@ -186,9 +225,7 @@ class SimpleMediaTools {
     unlink($this->media_path . '_locked');
 
     // update the meta data
-    if ($this->type == 'video') $this->getVideoData();
-    // get duration of the sound file from 'ffprobe' bash command
-    elseif ($this->type == 'audio') $this->getSoundData();
+    $this->getVideoOrSoundData();
 
   }
 
@@ -196,8 +233,34 @@ class SimpleMediaTools {
 
   public function makeTimelapse($width, $height, $framerate, $output_path) {
 
+    // get exif data from the first image - we need width height and date
+    $this->getImageData($this->media_path .'/000000.jpg');
+
+    $dimensions = [$this->media_data['Image Width'], $this->media_data['Image Height']];
+    sort($dimensions);
+
+    if ($dimensions[0] > 1000) {
+      $ratio = $dimensions[0] / $dimensions[1];
+      $dimensions[0] = 1000;
+      $dimensions[1] = $ratio * 1000;
+      if ($this->media_data['Image Width'] > $this->media_data['Image Height']) {
+        $width = $dimensions[0];
+        $height = $dimensions[1];
+      }
+      else {
+        $width = $dimensions[1];
+        $height = $dimensions[0];
+      }
+    }
+    else {
+      $width = $this->media_data['Image Width'];
+      $height = $this->media_data['Image Height'];
+    }
+
+    $date_made = $this->media_data['Create Date'] ?? $this->media_data['Modify Date'] ?? null;
+
     // make the timelapse video
-    shell_exec('ffmpeg -framerate ' . intval($framerate) . ' -pattern_type glob -i "' . $this->media_path . '/*.jpg" -pix_fmt yuv420p ' . $output_path . '.mp4');
+    shell_exec('ffmpeg -framerate ' . intval($framerate) . ' -pattern_type glob -i "' . $this->media_path . '/*.jpg" -s:v ' . $width . 'x' . $height . ' -c:v libx264 -crf 17 -pix_fmt yuv420p ' . $output_path . '.mp4');
 
     shell_exec('mv ' . $output_path . '.mp4 ' . $output_path);
 
@@ -207,7 +270,8 @@ class SimpleMediaTools {
     $this->mimeType = 'video/mp4';
     $this->type == 'video';
 
-    $this->getVideoData();
+    $this->getVideoOrSoundData();
+    $this->media_data['date_made'] = $date_made;
 
   }
 
@@ -216,4 +280,3 @@ class SimpleMediaTools {
 
 
 }
-
